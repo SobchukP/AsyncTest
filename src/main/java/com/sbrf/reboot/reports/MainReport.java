@@ -30,7 +30,6 @@ public class MainReport {
                 .thenApply(this::sampleAccountByCreateDate)
                 .thenApply(this::sampleAccountByCurrency)
                 .thenApply(this::calculationBalanceSum);
-        future.
         return future.join();
     }
 
