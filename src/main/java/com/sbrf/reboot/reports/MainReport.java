@@ -5,10 +5,13 @@ import reactor.core.publisher.Flux;
 
 import com.sbrf.reboot.dto.Account;
 import com.sbrf.reboot.dto.Customer;
+import reactor.core.scheduler.Scheduler;
+import reactor.core.scheduler.Schedulers;
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.Scanner;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 
@@ -26,20 +29,45 @@ public class MainReport {
     }
 
     public BigDecimal getTotalsWithCompletableFuture (Stream<Customer> customers) {
-        CompletableFuture<BigDecimal> future = CompletableFuture.supplyAsync(() -> sampleAccountsByAge(customers))
-                .thenApply(this::sampleAccountByCreateDate)
-                .thenApply(this::sampleAccountByCurrency)
-                .thenApply(this::calculationBalanceSum);
-        return future.join();
+        Stream<Stream<Customer>> streams = splitStreams(customers);
+        List<CompletableFuture<BigDecimal>> futuresList = streams
+                .map(elem -> getCompletableFuture(elem))
+                .collect(Collectors.toList());
+
+        CompletableFuture<BigDecimal> allFutures = CompletableFuture.allOf(futuresList.toArray(new CompletableFuture[0]))
+                .thenApply(elem -> futuresList.stream()
+                        .map(item -> item.join())
+                        .reduce((el1, el2) -> el1.add(el2)).orElse(BigDecimal.ZERO)
+                );
+
+        return allFutures.join();
     }
 
     public BigDecimal getTotalsWithReact(Stream<Customer> customers){
-        final BigDecimal resultSum = new BigDecimal(0);
-        Flux<Account> flux = Flux.fromStream(sampleAccountsByAge(customers))
-                .filter(acc -> acc.getCreateDate().isAfter(dateStart) && acc.getCreateDate().isBefore(dateEnd))
-                .filter(elem -> elem.getCurrency() == Currency.RUR);
-        flux.subscribe(it -> resultSum.add(it.getSum()));
+        BigDecimal resultSum = BigDecimal.ZERO;
+        Stream<Flux<Account>> fluxStream = splitStreams(customers)
+                .map(acc -> getFlux(acc, Schedulers.newParallel("Scheduler"+new Random().nextInt())));
+        fluxStream.reduce(Flux.empty(), Flux::merge).subscribe(it -> resultSum.add(it.getSum()));
         return resultSum;
+    }
+
+    private CompletableFuture<BigDecimal> getCompletableFuture(Stream<Customer> customers){
+        return CompletableFuture.supplyAsync(() -> sampleAccountsByAge(customers))
+                .thenApplyAsync(this::sampleAccountByCreateDate)
+                .thenApplyAsync(this::sampleAccountByCurrency)
+                .thenApplyAsync(this::calculationBalanceSum);
+    }
+
+    private Flux<Account> getFlux(Stream<Customer> customers, Scheduler scheduler){
+        return Flux.fromStream(sampleAccountsByAge(customers)).publishOn(scheduler).log()
+                .filter(acc -> acc.getCreateDate().isAfter(dateStart) && acc.getCreateDate().isBefore(dateEnd))
+                .filter(acc -> acc.getCurrency() == Currency.RUR);
+    }
+
+    private Stream<Stream<Customer>> splitStreams (Stream<Customer> customers){
+        int processorsCount = Runtime.getRuntime().availableProcessors();
+        Map<Integer, List<Customer>> groupStreams = customers.collect(Collectors.groupingBy(elem -> new Random().nextInt(processorsCount)));
+        return groupStreams.values().stream().map(elem -> elem.stream());
     }
 
     private Stream<Account> sampleAccountsByAge(Stream<Customer> customers) {
@@ -57,7 +85,7 @@ public class MainReport {
     }
 
     private BigDecimal calculationBalanceSum(Stream<Account> accounts){
-        return accounts.map(elem -> elem.getSum()).reduce((el1, el2) -> el1.add(el2)).orElseThrow(IllegalArgumentException::new);
+        return accounts.map(elem -> elem.getSum()).reduce((el1, el2) -> el1.add(el2)).orElse(BigDecimal.ZERO);
     }
 
 }

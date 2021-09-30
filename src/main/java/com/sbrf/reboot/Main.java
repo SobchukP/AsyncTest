@@ -18,10 +18,10 @@ public class Main {
             add(new Customer(20, "Denis", new Account(new BigDecimal(3000), Currency.RUR, LocalDate.of(2021, 7, 8))));
             add(new Customer(29, "Pavel", new Account(new BigDecimal(4000), Currency.RUR, LocalDate.of(2021, 9, 8))));
         }};
-        //customers.forEach(item -> System.out.println(item));
-        customers.forEach(customer -> System.out.println(customer));
+
         MainReport report = new MainReport(18, 30, LocalDate.of(2021, 7, 1), LocalDate.of(2021, 8, 1));
 
-        System.out.println(report.getTotalsWithCompletableFuture(customers.stream()));
+        System.out.println("result CompletableFuture "+report.getTotalsWithCompletableFuture(customers.stream()));
+        System.out.println("result React "+report.getTotalsWithReact(customers.stream()));
     }
 }
